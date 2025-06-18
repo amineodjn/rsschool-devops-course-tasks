@@ -1,0 +1,22 @@
+name: "Terraform Setup"
+description: "Sets up Terraform environment including checkout, AWS credentials, and Terraform CLI"
+
+inputs:
+  aws_account_id:
+    description: "AWS Account ID for assuming role"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.aws_account_id }}:role/GithubActionsRole
+        aws-region: eu-central-1
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
