@@ -23,25 +23,6 @@ resource "aws_iam_role" "github_actions" {
   tags = {
     Name = "GithubActionsRole"
   }
-
-  # Inline policy for DynamoDB state locking
-  inline_policy {
-    name = "DynamoDBStateLocking"
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "dynamodb:GetItem",
-            "dynamodb:PutItem",
-            "dynamodb:DeleteItem"
-          ]
-          Effect   = "Allow"
-          Resource = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/terraform-lock"
-        }
-      ]
-    })
-  }
 }
 
 # GitHub OIDC Provider
