@@ -7,9 +7,9 @@ data "aws_network_interface" "nat_primary" {
 resource "aws_instance" "nat" {
   ami                         = data.aws_ami.amazon_linux.id
   instance_type               = "t3.micro"
-  subnet_id                   = aws_subnet.public[0].id
+  subnet_id                   = aws_subnet.public.id
   associate_public_ip_address = true
-  key_name                    = aws_key_pair.bastion_key.key_name
+  key_name                    = aws_key_pair.main.key_name
   vpc_security_group_ids      = [aws_security_group.nat_sg.id]
   source_dest_check           = false
 

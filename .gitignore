@@ -1,1 +1,2 @@
-.terraform/
+   .terraform/
+k3s-key.pem
