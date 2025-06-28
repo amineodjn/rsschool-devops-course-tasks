@@ -4,7 +4,6 @@ variable "github_repository" {
   default     = "amineodjn/rsschool-devops-course-tasks"
 }
 
-<<<<<<< HEAD
 variable "aws_region" {
   description = "AWS Region for resources"
   type        = string
@@ -17,23 +16,6 @@ variable "aws_account_id" {
   default     = "679128292768"
 }
 
-variable "vpc_cidr" {
-  default = "10.0.0.0/16"
-}
-
-variable "public_subnet_cidrs" {
-  default = ["10.0.1.0/24", "10.0.2.0/24"]
-}
-
-variable "private_subnet_cidrs" {
-  default = ["10.0.101.0/24", "10.0.102.0/24"]
-}
-
-variable "azs" {
-  description = "List of AZs"
-  type        = list(string)
-  default     = ["eu-central-1a", "eu-central-1b"]
-=======
 # Kubernetes Cluster Variables
 variable "cluster_name" {
   description = "Name of the Kubernetes cluster"
@@ -71,9 +53,26 @@ variable "private_subnet_cidr" {
   default     = "10.0.2.0/24"
 }
 
+variable "public_subnet_cidrs" {
+  description = "CIDR blocks for public subnets"
+  type        = list(string)
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+}
+
+variable "private_subnet_cidrs" {
+  description = "CIDR blocks for private subnets"
+  type        = list(string)
+  default     = ["10.0.101.0/24", "10.0.102.0/24"]
+}
+
+variable "azs" {
+  description = "List of AZs"
+  type        = list(string)
+  default     = ["eu-central-1a", "eu-central-1b"]
+}
+
 variable "allowed_ssh_cidr" {
   description = "CIDR blocks allowed to SSH to bastion host"
   type        = list(string)
   default     = ["0.0.0.0/0"] # Warning: This allows access from anywhere
->>>>>>> ca6e61d (Add Kubernetes cluster deployment with k3s [task_3])
 } 

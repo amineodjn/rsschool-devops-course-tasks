@@ -61,6 +61,21 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+# Route Table for Private Subnet
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.cluster_name}-private-rt"
+  }
+}
+
+# Route Table Association for Private Subnet
+resource "aws_route_table_association" "private" {
+  subnet_id      = aws_subnet.private.id
+  route_table_id = aws_route_table.private.id
+}
+
 # Security Group for Bastion Host
 resource "aws_security_group" "bastion" {
   name_prefix = "${var.cluster_name}-bastion-"

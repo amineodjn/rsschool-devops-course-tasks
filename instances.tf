@@ -72,30 +72,4 @@ resource "aws_instance" "k8s_worker" {
   }
 
   depends_on = [aws_instance.k8s_master]
-}
-
-# Outputs
-output "bastion_public_ip" {
-  description = "Public IP of the bastion host"
-  value       = aws_instance.bastion.public_ip
-}
-
-output "master_private_ip" {
-  description = "Private IP of the master node"
-  value       = aws_instance.k8s_master.private_ip
-}
-
-output "worker_private_ip" {
-  description = "Private IP of the worker node"
-  value       = aws_instance.k8s_worker.private_ip
-}
-
-output "ssh_bastion_command" {
-  description = "SSH command to connect to bastion host"
-  value       = "ssh -i k3s-key.pem ubuntu@${aws_instance.bastion.public_ip}"
-}
-
-output "ssh_master_command" {
-  description = "SSH command to connect to master node via bastion"
-  value       = "ssh -i k3s-key.pem -J ubuntu@${aws_instance.bastion.public_ip} ubuntu@${aws_instance.k8s_master.private_ip}"
 } 
