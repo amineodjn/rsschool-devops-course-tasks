@@ -1,14 +1,13 @@
 terraform {
   required_version = ">= 1.0"
-}
-
-# Data sources
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.99"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.1"
+    }
   }
 }
