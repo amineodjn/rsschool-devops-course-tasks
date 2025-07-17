@@ -32,6 +32,48 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 }
 
+# Inline policy for DynamoDB state locking
+resource "aws_iam_role_policy" "dynamodb_state_locking" {
+  name = "DynamoDBStateLocking"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ]
+        Effect   = "Allow"
+        Resource = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/terraform-lock"
+      }
+    ]
+  })
+}
+
+# Inline policy for EC2 and networking resources
+resource "aws_iam_role_policy" "ec2_and_networking" {
+  name = "EC2AndNetworking"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ec2:*",
+          "elasticloadbalancing:*",
+          "autoscaling:*"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # Attach AWS managed policies to the role
 resource "aws_iam_role_policy_attachment" "ec2_full_access" {
   role       = aws_iam_role.github_actions.name

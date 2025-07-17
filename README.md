@@ -1,228 +1,377 @@
-# Terraform AWS Infrastructure Setup
+# Terraform AWS Infrastructure with Kubernetes Cluster
 
-## Overview
+This repository contains Terraform configurations to deploy and manage AWS infrastructure, including a Kubernetes cluster using k3s, integrated with GitHub Actions for CI/CD.
 
-This project provisions a secure, production-ready AWS infrastructure using Terraform. It is modular, follows best practices, and is designed for use with CI/CD via GitHub Actions and OIDC authentication.
+## Table of Contents
 
----
+- [Project Overview](#project-overview)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [AWS IAM Setup](#aws-iam-setup)
+- [GitHub Repository Secrets](#github-repository-secrets)
+- [Terraform Configuration Files](#terraform-configuration-files)
+- [CI/CD Workflow](#ci/cd-workflow)
+- [Kubernetes Cluster Deployment](#kubernetes-cluster-deployment)
+- [Cluster Verification](#cluster-verification)
+- [Local Access Setup](#local-access-setup)
+- [Usage](#usage)
+- [Troubleshooting](#troubleshooting)
 
-## Architecture Diagram
+## Project Overview
 
-```mermaid
-flowchart TD
-  subgraph VPC
-    IGW["Internet Gateway"]
-    NAT["NAT Instance"]
-    Bastion["Bastion EC2 (Public)"]
-    PublicVM["Public EC2"]
-    PrivateVM1["Private EC2 #1"]
-    PrivateVM2["Private EC2 #2"]
-    S3["S3 Bucket (Terraform State)"]
-    DynamoDB["DynamoDB Table (Lock)"]
-    IGW-->|"Public Route"|Bastion
-    IGW-->|"Public Route"|PublicVM
-    Bastion-->|"SSH"|PrivateVM1
-    Bastion-->|"SSH"|PrivateVM2
-    NAT-->|"Outbound"|PrivateVM1
-    NAT-->|"Outbound"|PrivateVM2
-    Bastion-->|"SSH"|NAT
-    PublicVM-->|"Internet"|IGW
-    PrivateVM1-->|"State"|S3
-    PrivateVM2-->|"State"|S3
-    S3-->|"Lock"|DynamoDB
-  end
-  Github["GitHub Actions"]
-  Github-->|"OIDC AssumeRole"|IAM["IAM Role"]
-  IAM-->|"Access"|S3
-  IAM-->|"Access"|DynamoDB
-  IAM-->|"Access"|EC2
-  IAM-->|"Access"|VPC
-  IAM-->|"Access"|Route53
-  IAM-->|"Access"|SQS
-  IAM-->|"Access"|EventBridge
-```
+This project uses Terraform to define and provision AWS resources including:
 
----
-
-## Features
-
-- VPC with public and private subnets across two AZs
-- Internet Gateway, NAT Instance for outbound access
-- Bastion host for secure SSH access
-- Public and private EC2 instances
-- Security groups for strict access control
-- S3 bucket for remote Terraform state (with versioning & encryption)
+- S3 bucket for Terraform state management
 - DynamoDB table for state locking
-- IAM role for GitHub Actions with OIDC authentication
-- CI/CD pipeline with GitHub Actions
+- VPC with public and private subnets
+- Bastion host for secure cluster access
+- Kubernetes cluster using k3s (1 master + 1 worker node)
+- IAM roles and policies for GitHub Actions
 
----
+The infrastructure as code (IaC) is managed through a GitHub Actions CI/CD pipeline, ensuring automated checks, planning, and application of changes.
 
-## Resource Summary
+## Architecture
 
-| Resource Type   | Name/Count                     | Purpose                               |
-| --------------- | ------------------------------ | ------------------------------------- |
-| VPC             | 1                              | Isolated network for all resources    |
-| Subnets         | 2 public, 2 private            | Segregate public/private resources    |
-| IGW             | 1                              | Internet access for public subnets    |
-| NAT Instance    | 1                              | Outbound internet for private subnets |
-| EC2 Instances   | 1 Bastion, 1 Public, 2 Private | Compute resources, SSH access         |
-| Security Groups | 3                              | Access control for EC2/NAT            |
-| S3 Bucket       | 1                              | Terraform remote state                |
-| DynamoDB Table  | 1                              | Terraform state locking               |
-| IAM Role        | 1                              | GitHub Actions OIDC access            |
-| OIDC Provider   | 1                              | GitHub Actions authentication         |
-
----
-
-## File/Module Structure
-
-| File/Folder                | Purpose                                               |
-| -------------------------- | ----------------------------------------------------- |
-| `main.tf`                  | Main Terraform config, provider, and data sources     |
-| `variables.tf`             | Input variables and defaults                          |
-| `outputs.tf`               | Outputs for use after apply                           |
-| `network.tf`               | VPC, subnets, route tables, associations              |
-| `compute.tf`               | EC2 instances, key pairs                              |
-| `security.tf`              | Security groups                                       |
-| `nat.tf`                   | NAT instance and routing                              |
-| `s3_dynamodb_resources.tf` | S3 bucket and DynamoDB table for state/locking        |
-| `iam.tf`                   | IAM roles, policies, OIDC provider for GitHub Actions |
-| `backend.tf`               | Remote backend config for Terraform state             |
-| `providers.tf`             | Provider configuration                                |
-| `data.tf`                  | Data sources (caller identity, region)                |
-| `.github/workflows/`       | GitHub Actions workflows (CI/CD)                      |
-| `.github/actions/`         | Custom GitHub Actions (setup-terraform)               |
-
----
+```
+Internet
+    │
+    ▼
+┌─────────────┐
+│ Bastion     │ (Public Subnet)
+│ Host        │ - SSH Access
+└─────────────┘
+    │
+    ▼
+┌─────────────┐    ┌─────────────┐
+│ Master      │    │ Worker      │ (Private Subnet)
+│ Node        │    │ Node        │ - k3s Server
+│ (k3s)       │    │ (k3s)       │ - k3s Agent
+└─────────────┘    └─────────────┘
+```
 
 ## Prerequisites
 
-- [Terraform](https://www.terraform.io/downloads.html) (>= 1.0)
-- [AWS CLI](https://aws.amazon.com/cli/)
-- AWS account with admin or required permissions
-- GitHub repository (for CI/CD)
+Before you begin, ensure you have the following:
 
----
+- An AWS Account with appropriate permissions
+- AWS CLI configured with appropriate permissions
+- Terraform CLI installed (version >= 1.0)
+- A GitHub repository to host this code
+- kubectl installed locally (for local cluster access)
 
-## Configuration
+## AWS IAM Setup
 
-### Variables
+This setup requires an IAM role and an OpenID Connect (OIDC) provider in AWS to allow GitHub Actions to assume a role and deploy resources securely.
 
-| Name                   | Default Value                            | Description                    |
-| ---------------------- | ---------------------------------------- | ------------------------------ |
-| `github_repository`    | "amineodjn/rsschool-devops-course-tasks" | GitHub repo in org/repo format |
-| `aws_region`           | "eu-central-1"                           | AWS region                     |
-| `aws_account_id`       | "679128292768"                           | AWS Account ID                 |
-| `vpc_cidr`             | "10.0.0.0/16"                            | VPC CIDR block                 |
-| `public_subnet_cidrs`  | ["10.0.1.0/24", "10.0.2.0/24"]           | Public subnet CIDRs            |
-| `private_subnet_cidrs` | ["10.0.101.0/24", "10.0.102.0/24"]       | Private subnet CIDRs           |
-| `azs`                  | ["eu-central-1a", "eu-central-1b"]       | Availability zones             |
+1. **IAM Role (`GithubActionsRole`)**: This role grants GitHub Actions the necessary permissions to manage AWS resources. It includes policies for:
 
-Override variables via `terraform.tfvars` or CLI args.
+   - EC2, Route53, S3, IAM, VPC, SQS, and EventBridge
+   - DynamoDB state locking
+   - EC2 and networking resources for Kubernetes cluster
 
-### Backend
+2. **IAM OIDC Provider**: Configured to trust `https://token.actions.githubusercontent.com`.
 
-Remote state is stored in S3 with locking via DynamoDB:
+These resources are defined in `iam.tf` and are provisioned as part of the Terraform apply process.
 
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "terraform-devops-course-11579"
-    key            = "global/s3/terraform.tfstate"
-    region         = "eu-central-1"
-    encrypt        = true
-    dynamodb_table = "terraform-lock"
-  }
-}
-```
+## GitHub Repository Secrets
 
----
+For the GitHub Actions workflow to authenticate with AWS, you need to add your AWS Account ID as a repository secret.
+
+1. Go to your GitHub repository settings.
+2. Navigate to `Secrets and variables` -> `Actions`.
+3. Click on `New repository secret`.
+4. Name the secret `AWS_ACCOUNT_ID` and paste your 12-digit AWS account ID as the value.
+
+## Terraform Configuration Files
+
+The Terraform configuration is organized into several files:
+
+- `main.tf`: Defines the required Terraform version.
+- `variables.tf`: Contains variable definitions for the cluster configuration.
+- `providers.tf`: Configures the AWS and TLS providers.
+- `backend.tf`: Configures the S3 backend for Terraform state management and DynamoDB for state locking.
+- `data.tf`: Defines data sources, including current AWS caller identity and region.
+- `iam.tf`: Contains the AWS IAM role and OIDC provider resources for GitHub Actions.
+- `networking.tf`: Defines VPC, subnets, security groups, and routing.
+- `key_pair.tf`: Generates SSH key pair for instance access.
+- `instances.tf`: Defines EC2 instances for bastion, master, and worker nodes.
+- `s3_dynamodb_resources.tf`: S3 bucket and DynamoDB table for Terraform state.
+
+## CI/CD Workflow
+
+The CI/CD pipeline is defined in `.github/workflows/terraform.yml` and consists of the following jobs:
+
+- **`terraform-check`**: Runs `terraform fmt -check -recursive` to ensure code formatting compliance.
+- **`terraform-plan`**: Initializes Terraform and generates an execution plan. This job requires the `terraform-check` to pass.
+- **`terraform-apply`**: Applies the Terraform changes. This job runs only on `push` events to the `main` branch, after `terraform-plan` has succeeded, and requires manual approval if configured.
+
+## Kubernetes Cluster Deployment
+
+### Cluster Components
+
+1. **Bastion Host**:
+
+   - Located in public subnet
+   - Provides SSH access to private instances
+   - Has kubectl installed for cluster management
+   - Acts as jump host for cluster access
+
+2. **Master Node**:
+
+   - Located in private subnet
+   - Runs k3s server
+   - Manages cluster control plane
+   - Hosts Kubernetes API server
+
+3. **Worker Node**:
+   - Located in private subnet
+   - Runs k3s agent
+   - Executes workloads
+   - Joins the cluster using master node token
+
+### Deployment Process
+
+1. **Infrastructure Provisioning**: Terraform creates all AWS resources
+2. **Instance Bootstrapping**: User data scripts configure each instance
+3. **Cluster Formation**: Master node starts k3s server, worker joins using token
+4. **Configuration**: Bastion host copies kubeconfig from master
+
+## Cluster Verification
+
+### From Bastion Host
+
+1. **SSH to bastion host**:
+
+   ```bash
+   ssh -i k3s-key.pem ubuntu@<bastion-public-ip>
+   ```
+
+2. **Copy kubeconfig from master**:
+
+   ```bash
+   ./copy-kubeconfig.sh
+   ```
+
+3. **Verify cluster nodes**:
+
+   ```bash
+   kubectl get nodes
+   ```
+
+   Expected output: 2 nodes (master and worker)
+
+4. **Check all resources**:
+
+   ```bash
+   kubectl get all --all-namespaces
+   ```
+
+5. **Deploy test workload**:
+
+   ```bash
+   kubectl apply -f https://k8s.io/examples/pods/simple-pod.yaml
+   ```
+
+6. **Verify workload**:
+   ```bash
+   kubectl get pods
+   kubectl get all --all-namespaces
+   ```
+
+## Local Access Setup
+
+To access the cluster from your local machine:
+
+1. **Get the private key**:
+
+   ```bash
+   terraform output -raw private_key > k3s-key.pem
+   chmod 600 k3s-key.pem
+   ```
+
+2. **Get bastion IP**:
+
+   ```bash
+   terraform output bastion_public_ip
+   ```
+
+3. **Create SSH config** (optional):
+
+   ```bash
+   # Add to ~/.ssh/config
+   Host k3s-bastion
+     HostName <bastion-public-ip>
+     User ubuntu
+     IdentityFile ~/.ssh/k3s-key.pem
+     StrictHostKeyChecking no
+   ```
+
+4. **Copy kubeconfig from bastion**:
+
+   ```bash
+   scp -i k3s-key.pem ubuntu@<bastion-public-ip>:/home/ubuntu/.kube/config ~/.kube/config-k3s
+   ```
+
+5. **Update kubeconfig for local access**:
+
+   ```bash
+   # Replace bastion IP with your local machine's public IP or use port forwarding
+   sed -i "s/<bastion-public-ip>/localhost/g" ~/.kube/config-k3s
+   ```
+
+6. **Use the kubeconfig**:
+   ```bash
+   export KUBECONFIG=~/.kube/config-k3s
+   kubectl get nodes
+   ```
 
 ## Usage
 
-1. **Clone the repository:**
-   ```sh
-   git clone <your-repo-url>
-   cd <project-directory>
+### Initial Setup (Manual, One-time)
+
+1. **Clone the repository**:
+
+   ```bash
+   git clone <your-repository-url>
+   cd <your-repository-name>
+   git checkout task_3
    ```
-2. **Configure AWS credentials:**
-   - Use `aws configure` or environment variables.
-3. **Initialize Terraform:**
-   ```sh
+
+2. **Initialize Terraform**: This will download the necessary providers and set up the S3 backend.
+
+   ```bash
    terraform init
    ```
-4. **Plan changes:**
-   ```sh
-   terraform plan
-   ```
-5. **Apply changes:**
-   ```sh
+
+3. **Apply Infrastructure**: Deploy all resources including the Kubernetes cluster.
+
+   ```bash
    terraform apply
    ```
-6. **Destroy resources:**
-   ```sh
-   terraform destroy
+
+4. **Wait for cluster setup**: The instances will take 5-10 minutes to fully configure.
+
+### Development Workflow (via GitHub Actions)
+
+1. **Make changes**: Modify your Terraform `.tf` files as needed.
+2. **Commit and Push**: Push your changes to a branch. A pull request will trigger the `terraform-check` and `terraform-plan` jobs.
+3. **Create a Pull Request**: Opening a pull request will run the `terraform-check` and `terraform-plan` jobs, showing you the proposed infrastructure changes before merging.
+4. **Merge to `main`**: Pushing or merging changes to the `main` branch will trigger the `terraform-apply` job, which will automatically apply your infrastructure changes to AWS.
+
+### Cluster Management
+
+1. **Access cluster via bastion**:
+
+   ```bash
+   ssh -i k3s-key.pem ubuntu@<bastion-public-ip>
+   ./check-cluster.sh
    ```
 
-### Outputs
+2. **Deploy applications**:
 
-- `vpc_id`, `public_subnet_ids`, `private_subnet_ids`, `bastion_public_ip`, `bastion_private_key_pem`, `private_vm_private_ips`
+   ```bash
+   kubectl apply -f <your-manifest.yaml>
+   ```
 
----
+3. **Monitor cluster**:
+   ```bash
+   kubectl get nodes
+   kubectl get pods --all-namespaces
+   kubectl top nodes
+   kubectl top pods
+   ```
 
-## CI/CD with GitHub Actions
+## Troubleshooting
 
-- **Workflow:** `.github/workflows/terraform.yml`
-  - Checks formatting, runs `plan` on PR, and `apply` on main branch push.
-- **OIDC Authentication:**
-  - Uses a custom action (`.github/actions/setup-terraform`) to assume an AWS IAM role via OIDC for secure, keyless authentication.
-- **Required Secrets:**
-  - `AWS_ACCOUNT_ID` in GitHub repository secrets.
+### Common Issues
 
----
+1. **Instances not starting**:
 
-## IAM & Security
+   - Check security groups and network configuration
+   - Verify key pair exists and is properly configured
+   - Check instance logs in AWS console
 
-- **IAM Role:**
-  - Created for GitHub Actions with OIDC trust and least-privilege policies for EC2, S3, DynamoDB, VPC, Route53, SQS, EventBridge.
-- **OIDC Provider:**
-  - Configured for GitHub Actions (`token.actions.githubusercontent.com`).
-- **Security Groups:**
-  - Bastion: SSH from anywhere
-  - Private VMs: SSH only from Bastion
-  - NAT: SSH from Bastion, ICMP from anywhere
+2. **Worker node not joining cluster**:
 
----
+   - Verify master node is running: `systemctl status k3s`
+   - Check node token is accessible: `cat /home/ubuntu/node-token`
+   - Ensure network connectivity between nodes
 
-## State Management
+3. **kubectl not working**:
 
-- **S3 Bucket:**
-  - Stores Terraform state, versioned and encrypted.
-- **DynamoDB Table:**
-  - Manages state locking to prevent concurrent changes.
+   - Verify kubeconfig is copied correctly
+   - Check file permissions: `chmod 600 ~/.kube/config`
+   - Ensure API server is accessible
 
----
+4. **Pods not scheduling**:
+   - Check node resources: `kubectl describe nodes`
+   - Verify taints and tolerations
+   - Check pod events: `kubectl describe pod <pod-name>`
 
-## Extending/Customizing
+### Useful Commands
 
-- Add new resources in separate `.tf` files or modules.
-- Adjust variables in `variables.tf` or via `terraform.tfvars`.
-- Update GitHub Actions workflow as needed for your process.
+```bash
+# Check k3s status on master
+systemctl status k3s
 
----
+# Check k3s agent status on worker
+systemctl status k3s-agent
 
-## Troubleshooting & Notes
+# View k3s logs
+journalctl -u k3s -f
 
-- Ensure AWS credentials and permissions are correct.
-- Review `terraform plan` before applying.
-- For CI/CD, ensure OIDC role and provider are set up in AWS.
-- For issues with state, check S3 and DynamoDB resources.
+# Check cluster info
+kubectl cluster-info
 
----
+# Get detailed node information
+kubectl describe nodes
 
-## References
+# Check pod events
+kubectl get events --sort-by='.lastTimestamp'
+```
 
-- [Terraform Docs](https://www.terraform.io/docs/)
-- [AWS Provider Docs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [GitHub Actions OIDC](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)
+### Cleanup
+
+To destroy the infrastructure:
+
+```bash
+terraform destroy
+```
+
+**Warning**: This will delete all resources including the Kubernetes cluster and all data.
+
+## Security Considerations
+
+1. **SSH Access**: The bastion host is configured to accept SSH from anywhere (0.0.0.0/0). In production, restrict this to specific IP ranges.
+2. **Key Management**: SSH private keys are stored in Terraform state. Consider using AWS Systems Manager Parameter Store for production.
+3. **Network Security**: Worker nodes are in private subnets and only accessible via bastion host.
+4. **IAM Permissions**: The GitHub Actions role has broad permissions. Consider implementing least privilege access.
+
+## Cost Optimization
+
+1. **Instance Types**: Using t3.micro instances (free tier eligible) for development.
+2. **Storage**: Using gp3 volumes for better performance/cost ratio.
+3. **Monitoring**: Consider using AWS CloudWatch for monitoring and alerting.
+4. **Auto-scaling**: For production, consider implementing auto-scaling groups.
+
+## Next Steps
+
+1. **Production Hardening**:
+
+   - Implement proper secrets management
+   - Add monitoring and logging
+   - Configure backup strategies
+   - Implement auto-scaling
+
+2. **Application Deployment**:
+
+   - Deploy your applications to the cluster
+   - Set up CI/CD pipelines for applications
+   - Configure ingress controllers
+   - Implement service mesh if needed
+
+3. **Security Enhancements**:
+   - Implement network policies
+   - Add pod security policies
+   - Configure RBAC
+   - Enable audit logging
